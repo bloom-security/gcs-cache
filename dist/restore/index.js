@@ -74454,6 +74454,18 @@ function restoreFromGCS(_paths_1, primaryKey_1) {
             core.info(`Cache Size: ~${Math.round(archiveFileSize / (1024 * 1024))} MB (${archiveFileSize} B)`);
             yield (0, tar_1.extractTar)(archivePath, compressionMethod);
             core.info("Cache restored successfully");
+            // Reset the last-access clock: stamp customTime = now on a hit so an
+            // actively-used cache isn't evicted by the daysSinceCustomTime rule.
+            // Best-effort - never fail a restore over it.
+            try {
+                yield storage
+                    .bucket(bucket)
+                    .file(cacheHit.gcsPath)
+                    .setMetadata({ customTime: new Date().toISOString() });
+            }
+            catch (e) {
+                core.debug(`customTime touch failed: ${e.message}`);
+            }
             return cacheHit;
         }
         catch (error) {
@@ -74499,7 +74511,11 @@ function saveToGCS(paths, key) {
             core.info(`Uploading to GCS: ${bucket}/${gcsPath}`);
             const [file] = yield storage.bucket(bucket).upload(archivePath, {
                 destination: gcsPath,
-                resumable: false
+                resumable: false,
+                // Stamp customTime so the bucket's daysSinceCustomTime lifecycle
+                // evicts by last-access rather than creation age (paired with the
+                // touch on restore-hit below).
+                metadata: { customTime: new Date().toISOString() }
             });
             return file.metadata.id;
         }
