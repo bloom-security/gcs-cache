@@ -184,6 +184,18 @@ async function restoreFromGCS(
         await extractTar(archivePath, compressionMethod);
         core.info("Cache restored successfully");
 
+        // Reset the last-access clock: stamp customTime = now on a hit so an
+        // actively-used cache isn't evicted by the daysSinceCustomTime rule.
+        // Best-effort - never fail a restore over it.
+        try {
+            await storage
+                .bucket(bucket)
+                .file(cacheHit.gcsPath)
+                .setMetadata({ customTime: new Date().toISOString() });
+        } catch (e) {
+            core.debug(`customTime touch failed: ${(e as Error).message}`);
+        }
+
         return cacheHit;
     } catch (error) {
         core.warning(`Failed to restore: ${(error as Error).message}`);
@@ -246,7 +258,11 @@ async function saveToGCS(
         core.info(`Uploading to GCS: ${bucket}/${gcsPath}`);
         const [file] = await storage.bucket(bucket).upload(archivePath, {
             destination: gcsPath,
-            resumable: false
+            resumable: false,
+            // Stamp customTime so the bucket's daysSinceCustomTime lifecycle
+            // evicts by last-access rather than creation age (paired with the
+            // touch on restore-hit below).
+            metadata: { customTime: new Date().toISOString() }
         });
 
         return file.metadata.id;
