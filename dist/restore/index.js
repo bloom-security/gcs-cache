@@ -74369,11 +74369,17 @@ function restoreCache(paths, primaryKey, restoreKeys, options, enableCrossOsArch
                     core.info(`Cache restored from GCS with key: ${result.cacheKey}`);
                     return result;
                 }
-                core.info("Cache not found in GCS, falling back to GitHub cache");
+                // GCS-only on a miss: do NOT fall back to GitHub/Azure here.
+                // Otherwise a key that still exists in GitHub's Azure cache would
+                // be restored as a hit and the GCS save would be skipped - so GCS
+                // would never warm and NAT would never drop. Only a GCS *error*
+                // (the catch below) falls back, as an outage safety net.
+                core.info("Cache not found in GCS");
+                return undefined;
             }
             catch (error) {
                 core.warning(`Failed to restore from GCS: ${error.message}`);
-                core.info("Falling back to GitHub cache");
+                core.info("GCS error - falling back to GitHub cache");
             }
         }
         else {
